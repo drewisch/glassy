@@ -469,7 +469,7 @@ details.how code { font: 12.5px var(--mono); background: var(--surface-2); paddi
 
 /* ---------- Leaflet overrides ---------- */
 .leaflet-container { font: 12px/1.4 var(--sans); background: var(--water-1); }
-.leaflet-tile-pane { filter: var(--tile-filter); }
+.leaflet-tile-pane, .leaflet-labels-pane { filter: var(--tile-filter); }
 .leaflet-bar { border: 1px solid var(--line-2) !important; box-shadow: var(--shadow) !important; border-radius: 10px !important; overflow: hidden; }
 .leaflet-bar a { background: var(--surface) !important; color: var(--ink) !important; border-bottom-color: var(--line) !important; width: 32px !important; height: 32px !important; line-height: 32px !important; }
 .leaflet-bar a:hover { background: var(--surface-2) !important; }

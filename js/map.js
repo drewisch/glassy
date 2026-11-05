@@ -11,8 +11,26 @@ const SRI = {
   js: 'sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg==',
   css: 'sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==',
 };
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/{style}/{z}/{x}/{y}{r}.png';
-const TILE_EST = 20000; // bytes per tile when the CDN doesn't expose transfer size
+// Basemaps. The contract named CARTO light_all/dark_all, but CARTO now answers every
+// keyless request with an "API KEY REQUIRED" image, so we use Esri's keyless tile services
+// (CORS-enabled): World Ocean Base (with bathymetry shading, very chart-like) for light,
+// Dark Gray Canvas for night, each with its thin label layer.
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+const BASEMAPS = {
+  light: {
+    base: ESRI + 'Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+    ref: ESRI + 'Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}',
+    maxNative: 13,
+    attribution: 'Tiles © <a href="https://www.esri.com/">Esri</a> — GEBCO, NOAA, CHS, OSU, UNH, CSUMB, National Geographic, DeLorme, NAVTEQ',
+  },
+  dark: {
+    base: ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    ref: ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    maxNative: 16,
+    attribution: 'Tiles © <a href="https://www.esri.com/">Esri</a> — Esri, HERE, Garmin, © OpenStreetMap contributors',
+  },
+};
+const TILE_EST = 15000; // bytes per tile when the server doesn't expose transfer size
 
 let leafletP = null;
 /** Inject Leaflet CSS + JS (with SRI) once. Resolves to the global L. */
@@ -81,7 +99,7 @@ function arrowSvg(deg, len, color, label) {
  *   (compact/view/spots are optional extras beyond the contract)
  */
 export function createMap(el, { onPick, onSpot, compact = false, view, spots = SPOTS } = {}) {
-  let map, tiles, markers = [], spotLayer, rayLayer, arrowLayer, dark = false, arrowsOn = false;
+  let map, tiles = [], markers = [], spotLayer, rayLayer, arrowLayer, dark = false, arrowsOn = false;
   let disposed = false;
   const swellCache = new Map(); // spot id -> {v, at}
   let arrowTimer = 0, arrowSeq = 0;
@@ -107,6 +125,9 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
     map.on('focus', () => map.scrollWheelZoom.enable());
     el.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
 
+    map.createPane('labels');
+    map.getPane('labels').style.zIndex = 390; // above tiles, below vectors
+    map.getPane('labels').style.pointerEvents = 'none';
     setTiles(L);
     spotLayer = L.layerGroup().addTo(map);
     drawSpots(L);
@@ -119,17 +140,13 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
   });
 
   function setTiles(L) {
-    if (tiles) tiles.remove();
-    tiles = L.tileLayer(TILE_URL, {
-      style: dark ? 'dark_all' : 'light_all',
-      subdomains: 'abcd',
-      maxZoom: 19,
-      crossOrigin: true,
-      detectRetina: false,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
-    });
-    tiles.on('tileload', (e) => countTile(e.tile.src));
-    tiles.addTo(map);
+    for (const t of tiles || []) t.remove();
+    const bm = BASEMAPS[dark ? 'dark' : 'light'];
+    const common = { maxZoom: 18, maxNativeZoom: bm.maxNative, crossOrigin: true };
+    const base = L.tileLayer(bm.base, { ...common, attribution: bm.attribution });
+    const ref = L.tileLayer(bm.ref, { ...common, pane: 'labels' });
+    tiles = [base, ref];
+    for (const t of tiles) { t.on('tileload', (e) => countTile(e.tile.src)); t.addTo(map); }
   }
 
   function spotStyle() {
@@ -189,7 +206,7 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
       const v = swellCache.get(s.id)?.v;
       if (!v || !(v.h > 0)) continue;
       const len = Math.max(12, Math.min(34, 10 + v.h * 7));
-      const label = z >= 5 ? `${v.h.toFixed(1)}m ${Math.round(v.t)}s` : '';
+      const label = z >= 10 ? `${v.h.toFixed(1)}m ${Math.round(v.t)}s` : '';
       L.marker([s.lat, s.lon], {
         icon: L.divIcon({ className: 'swell-arrow', html: arrowSvg(v.dir, len, color, label), iconSize: [44, 44], iconAnchor: [22, 22] }),
         interactive: false, keyboard: false,

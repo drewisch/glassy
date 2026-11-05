@@ -20,11 +20,14 @@ function phaseField(elev, n, cell, dir, T) {
   for (let i = 0; i < N; i++) { const d = -elev[i]; F[i] = (d > 0 ? kOf(w, Math.max(d, 0.5)) : 1.0) * cell; }
   const r = dir * Math.PI / 180, px = -Math.sin(r), py = Math.cos(r); // propagation in (col, row=south)
   const seeds = [], c0 = (n - 1) / 2;
-  const edge = (dot, f) => { if (dot < -0.1) for (let i = 0; i < n; i++) { const id = f(i); if (elev[id] < 0) seeds.push(id); } };
-  edge(-px, i => i * n);           // west
-  edge(px, i => i * n + n - 1);    // east
-  edge(-py, i => i);               // north
-  edge(py, i => (n - 1) * n + i);  // south
+  let lim = -0.1;
+  const edge = (dot, f) => { if (dot < lim) for (let i = 0; i < n; i++) { const id = f(i); if (elev[id] < 0) seeds.push(id); } };
+  for (; !seeds.length && lim < 2; lim += 0.5) { // fall back to side edges if the facing edges are all land
+    edge(-px, i => i * n);           // west
+    edge(px, i => i * n + n - 1);    // east
+    edge(-py, i => i);               // north
+    edge(py, i => (n - 1) * n + i);  // south
+  }
   if (!seeds.length) { let b = 0; for (let i = 1; i < N; i++) if (elev[i] < elev[b]) b = i; seeds.push(b); }
   let kr = 0; for (const s of seeds) kr += F[s]; kr /= seeds.length * cell;
   for (const s of seeds) { ph[s] = kr * (px * (s % n - c0) + py * ((s / n | 0) - c0)) * cell; fixed[s] = 1; }
