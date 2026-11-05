@@ -133,7 +133,7 @@ float fo=sz*(.55+.45*smoothstep(.2,.9,(c*aa*.5+.5)*.7+nz*.5));
 fo=max(fo,cr*smoothstep(.35,.7,H/max(d,.5))*nz*1.2);
 fo*=smoothstep(-.3,.25,d);fo=clamp(fo,0.,1.);
 vec3 V=normalize(uEye-vP);float df=max(dot(N,uL),0.);float sp=pow(max(dot(reflect(-uL,N),V),0.),80.)*(uDark>.5?.12:.5);
-vec3 col=uWat*(.8+.3*df)+cr*(uDark>.5?.05:.18)+sp;
+vec3 col=uWat*(.8+.3*df)+cr*(uDark>.5?.09:.18)+sp;
 float al=(uDark>.5?.3:.22)+.12*cr+sp*.5;
 col=mix(col,uFoam,fo);al=mix(al,.92,fo)*smoothstep(-.3,.15,d);
 o=vec4(col*al,al);}`;
@@ -211,7 +211,7 @@ export function createScene(canvas, sceneData, opts = {}) {
   for (const [f, nx, nz] of edges) {
     for (let i = 0; i < n; i++) {
       const s = f(i) * 7;
-      tv.set([tv[s], tv[s + 1], tv[s + 2], nx, 0, nz, 1e4], (vb + 2 * i) * 7);
+      tv.set([tv[s], Math.max(tv[s + 1], 0), tv[s + 2], nx, 0, nz, 1e4], (vb + 2 * i) * 7);
       tv.set([tv[s], baseY, tv[s + 2], nx, 0, nz, 1e4], (vb + 2 * i + 1) * 7);
       if (i < n - 1) { const a = vb + 2 * i; tIdx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], off); off += 6; }
     }
