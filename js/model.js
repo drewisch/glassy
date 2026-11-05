@@ -1,4 +1,6 @@
-// Surf model: offshore partitions -> breaking height at the site, wind quality, rating.
+// Surf model: nearshore (CDIP MOP) or offshore (Open-Meteo) partitions -> breaking height at
+// the site, wind quality, rating.
+import { shoaling } from './nearshore.js';
 
 const G = 9.81;
 const NB = 180; // 2° direction bins
@@ -156,7 +158,21 @@ export function computeSurf(site, forecast, refOpen) {
     const parts = [];
     let sum2 = 0;
     let pw = 0, pwt = 0;
-    for (const kind of ['swell', 'swell2', 'windWave']) {
+    const ns = forecast.nearshore?.[i];
+    if (ns) {
+      // Nearshore (CDIP MOP, ~10 m depth): refraction and island sheltering are already in the
+      // data. Un-shoal to an equivalent deep-water height, add the last bit of refraction from
+      // 10 m to the break (Snell → near-normal incidence), then break it with Komar–Gaughan.
+      for (const p of ns.parts) {
+        const rel = Math.min(angDiff(p.dir, normal), 89);
+        const kr = Math.sqrt(Math.max(Math.cos((rel * Math.PI) / 180), 0));
+        const h0 = (p.h / shoaling(ns.depth, p.t)) * kr;
+        const hb = komarGaughan(h0, p.t);
+        sum2 += hb * hb; pw += hb * hb; pwt += hb * hb * p.t;
+        parts.push({ kind: p.kind, h: p.h, t: p.t, dir: p.dir, kd: null, h0, hb, depth: ns.depth });
+      }
+    }
+    for (const kind of ns ? [] : ['swell', 'swell2', 'windWave']) {
       const src = forecast[kind]?.[i] || { h: 0, t: 0, dir: 0 };
       const h = src.h || 0, t = src.t || 0, dir = src.dir || 0;
       let k2 = 0, h0 = 0, hb = 0;

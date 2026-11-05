@@ -234,15 +234,18 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
     }
     if (site?.surf) {
       const sp = [site.surf.lat, site.surf.lon];
-      const tip = dest(site.surf.lat, site.surf.lon, site.normal, 900);
-      const l = dest(tip[0], tip[1], site.normal + 155, 220);
-      const r = dest(tip[0], tip[1], site.normal - 155, 220);
-      L.polyline([sp, tip], { color: accent, weight: 2.5, interactive: false }).addTo(rayLayer);
-      L.polygon([tip, l, r], { color: accent, fillColor: accent, fillOpacity: 1, weight: 1, interactive: false }).addTo(rayLayer);
+      if (Number.isFinite(site.normal)) {
+        const tip = dest(site.surf.lat, site.surf.lon, site.normal, 900);
+        const l = dest(tip[0], tip[1], site.normal + 155, 220);
+        const r = dest(tip[0], tip[1], site.normal - 155, 220);
+        L.polyline([sp, tip], { color: accent, weight: 2.5, interactive: false }).addTo(rayLayer);
+        L.polygon([tip, l, r], { color: accent, fillColor: accent, fillOpacity: 1, weight: 1, interactive: false }).addTo(rayLayer);
+        pts.push(tip);
+      }
       L.circleMarker(sp, { radius: 6, color: cssVar('--surface', '#fff'), weight: 2, fillColor: accent, fillOpacity: 1, bubblingMouseEvents: false })
-        .bindTooltip(`Surf point · ${Math.abs(site.surf.depth ?? 0).toFixed(0)} m deep`, { direction: 'top', className: 'spot-tip' })
+        .bindTooltip(`${Number.isFinite(site.surf.depth) ? `Surf point · ${Math.abs(site.surf.depth).toFixed(0)} m deep` : 'Surf point'}`, { direction: 'top', className: 'spot-tip' })
         .addTo(rayLayer);
-      pts.push(sp, tip);
+      pts.push(sp);
     }
     if (site?.coast) {
       L.circleMarker([site.coast.lat, site.coast.lon], { radius: 3, color: accent, weight: 1.5, fillOpacity: 0, interactive: false }).addTo(rayLayer);

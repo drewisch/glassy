@@ -416,7 +416,7 @@ function renderHome(main) {
 }
 
 // ---------------------------------------------------------------- spot page
-const PART_LABEL = { swell: 'Primary swell', swell2: 'Secondary swell', windWave: 'Wind waves' };
+const PART_LABEL = { swell: 'Primary', swell2: 'Secondary', windWave: 'Wind waves' };
 const KIND_LABEL = { offshore: 'Offshore', 'cross-off': 'Cross-offshore', cross: 'Cross-shore', 'cross-on': 'Cross-onshore', onshore: 'Onshore', glassy: 'Glassy' };
 
 function nowIndex(fc) {
@@ -475,27 +475,48 @@ async function renderSpot(main, spot) {
   }
 
   const progress = (t) => { const p = $('#progress'); if (p) p.textContent = t; };
-  let fc, site, refOpen = null;
+  let data;
   try {
-    const fP = api.getForecast(spot.lat, spot.lon).then((x) => { progress('Swell in. Tracing rays over the bathymetry…'); return x; });
-    const sP = geo.analyzeSite(spot.lat, spot.lon).then((x) => { progress('Seafloor mapped. Waiting for the swell model…'); return x; });
-    [fc, site] = await Promise.all([fP, sP]);
-    if (!alive()) return;
-    progress('Correcting for the model grid cell’s exposure…');
-    refOpen = await geo.referenceExposure(fc.ref.lat, fc.ref.lon).catch(() => null);
-    if (!alive()) return;
+    data = await loadSpotData(spot, { onProgress: progress });
   } catch (err) {
     if (!alive()) return;
     showSpotError(main, err, () => renderSpot(main, spot));
     return;
   }
-
-  let hourly;
-  try { hourly = computeSurf(site, fc, refOpen); } catch (err) { showSpotError(main, err, () => renderSpot(main, spot)); return; }
-  if (!hourly?.length) { showSpotError(main, new Error('The forecast came back empty.'), () => renderSpot(main, spot)); return; }
-
-  state.spot = { spot, fc, site, refOpen, hourly, i: nowIndex(fc), nowI: nowIndex(fc), rep: null, charts: {}, scene: null };
+  if (!alive()) return;
+  const { site, forecast: fc, refOpen, hourly, report } = data;
+  const ni = nowIndex(fc);
+  state.spot = { spot, fc, site, refOpen, hourly, i: ni, nowI: ni, rep: report, charts: {}, scene: null };
   renderSpotBody();
+}
+
+/**
+ * The single place that loads and models a spot. Everything the spot page shows comes
+ * from here, so the data source can be swapped (e.g. CDIP MOP nearshore output for
+ * California) without touching rendering.
+ * Optional site fields: window, blocked, rays, kd2, profile, normal, surf, slope.
+ * @returns {Promise<{site, forecast, refOpen, hourly, report}>}
+ */
+async function loadSpotData(spot, { onProgress = () => {} } = {}) {
+  const { lat, lon } = spot;
+  const fP = api.getForecast(lat, lon).then((x) => { onProgress('Swell in. Tracing rays over the bathymetry…'); return x; });
+  const sP = geo.analyzeSite(lat, lon).then((x) => { onProgress('Seafloor mapped. Waiting for the swell model…'); return x; });
+  const [forecast, site] = await Promise.all([fP, sP]);
+  onProgress('Correcting for the model grid cell’s exposure…');
+  const refOpen = forecast.ref ? await geo.referenceExposure(forecast.ref.lat, forecast.ref.lon).catch(() => null) : null;
+  const hourly = computeSurf(site, forecast, refOpen);
+  if (!hourly?.length) throw new Error('The forecast came back empty.');
+  const report = makeReport(spot, site, hourly, forecast);
+  return { site, forecast, refOpen, hourly, report };
+}
+
+function makeReport(spot, site, hourly, forecast) {
+  try {
+    return buildReport({ spot, site, hourly, forecast, units: state.units });
+  } catch (err) {
+    console.warn('report', err);
+    return { headline: 'Forecast', paragraphs: [], outlook: [], tides: [] };
+  }
 }
 
 function showSpotError(main, err, retry) {
@@ -513,12 +534,11 @@ function showSpotError(main, err, retry) {
 
 function rebuildReport() {
   const S = state.spot;
-  try {
-    S.rep = buildReport({ spot: S.spot, site: S.site, hourly: S.hourly, forecast: S.fc, units: state.units });
-  } catch (err) {
-    console.warn('report', err);
-    S.rep = { headline: 'Forecast', paragraphs: [], outlook: [], tides: [] };
-  }
+  S.rep = makeReport(S.spot, S.site, S.hourly, S.fc);
+  renderReport();
+}
+
+function renderReport() {
   const el = $('#report');
   if (el) el.innerHTML = reportHTML();
   const ol = $('#outlook');
@@ -529,8 +549,9 @@ function reportHTML() {
   const S = state.spot, r = S.rep;
   let wins = [];
   try { wins = bestWindows(S.hourly, 3) || []; } catch { wins = []; }
-  const today = S.hourly[S.nowI].time.slice(0, 10);
-  wins = wins.flat().filter((w) => w && w.date >= today && w.rating > 0).slice(0, 3);
+  const nowT = S.hourly[S.nowI].time;
+  const endOf = (w) => (typeof w.end === 'number' ? S.hourly[w.end]?.time : w.end) || '';
+  wins = wins.flat().filter((w) => w && endOf(w) > nowT && w.rating > 0).slice(0, 3);
   const winHTML = wins.length ? `
     <div class="card-h" style="margin:16px 0 8px"><h3>Best windows</h3></div>
     <ul class="windows">${wins.map((w) => {
@@ -561,8 +582,15 @@ function renderSpotBody() {
   const S = state.spot;
   const { spot, site, fc } = S;
   const body = $('#spot-body');
-  const distRef = haversineKm(site.surf || spot, fc.ref);
-  $('#meta-extra').insertAdjacentHTML('beforeend', `${$('#meta-extra').textContent ? ' · ' : ''}Faces ${compass(site.normal)} (${Math.round(site.normal)}°) · local time ${fc.timezone ? esc(fc.timezone.replace(/_/g, ' ')) : ''}`);
+  // Optional site layers (a nearshore-model data source may not provide them)
+  const hasNormal = Number.isFinite(site.normal);
+  const hasWindow = !!site.window?.length;
+  const hasProfile = (site.profile?.length || 0) >= 2;
+  const hasRays = !!site.rays?.length;
+  const distRef = fc.ref ? haversineKm(site.surf || spot, fc.ref) : null;
+  const metaBits = [hasNormal ? `Faces ${compass(site.normal)} (${Math.round(site.normal)}°)` : '', fc.timezone ? `local time ${esc(fc.timezone.replace(/_/g, ' '))}` : ''].filter(Boolean);
+  $('#meta-extra').insertAdjacentHTML('beforeend', `${$('#meta-extra').textContent && metaBits.length ? ' · ' : ''}${metaBits.join(' · ')}`);
+  const fact = (dt, dd) => `<div><dt>${dt}</dt><dd>${dd}</dd></div>`;
 
   body.innerHTML = `
     <div class="spot-grid-main">
@@ -574,15 +602,16 @@ function renderSpotBody() {
         <div class="chart-box tall" id="fc-chart"></div>
       </section>
 
-      <section class="card fade-in" aria-labelledby="h-parts">
+      ${hasWindow ? `<section class="card fade-in" aria-labelledby="h-polar">
+        <div class="card-h"><h2 id="h-polar">Swell window</h2><span class="sub">which directions reach this break</span></div>
+        <div class="chart-box" id="polar"></div>
+      </section>` : ''}
+      <section class="card fade-in${hasWindow ? '' : ' span-all'}" aria-labelledby="h-parts">
         <div class="card-h"><h2 id="h-parts">Swell components</h2><span class="sub mono" id="parts-when"></span></div>
         <div class="tbl-wrap" id="parts"></div>
         <p class="chart-note">Offshore height is from the Open-Meteo wave model; <i>at break</i> is after refraction &amp; island shadowing (K<sub>d</sub>); breaking height uses Komar–Gaughan.</p>
       </section>
-      <section class="card fade-in" aria-labelledby="h-polar">
-        <div class="card-h"><h2 id="h-polar">Swell window</h2><span class="sub">which directions reach this break</span></div>
-        <div class="chart-box" id="polar"></div>
-      </section>
+
 
       <section class="card span-all fade-in" aria-labelledby="h-tide">
         <div class="card-h"><h2 id="h-tide">Tide</h2><span class="sub mono" id="tide-when"></span></div>
@@ -599,14 +628,14 @@ function renderSpotBody() {
         <p class="caption">This is the real seafloor and coastline in a 6 km square around the surf point (AWS Terrain Tiles bathymetry, height exaggerated). Crests follow the selected hour’s dominant swell as it bends over the contours, solved from the wave-speed field; white water marks where depth drops below the breaking depth. Drag to orbit, scroll or pinch to zoom.</p>
       </section>
 
-      <section class="card fade-in" aria-labelledby="h-depth">
+      ${hasProfile ? `<section class="card fade-in" aria-labelledby="h-depth">
         <div class="card-h"><h2 id="h-depth">Depth profile</h2><span class="sub">along the shore normal</span></div>
         <div class="chart-box" id="depth"></div>
-      </section>
-      <section class="card fade-in" aria-labelledby="h-map">
-        <div class="card-h"><h2 id="h-map">Wave rays</h2><span class="sub">14 s swell, traced back offshore</span></div>
-        <div class="mini-map" id="mini-map" aria-label="Map showing refracted wave rays reaching the break"></div>
-        <div class="legend"><span><i></i>open to the ocean</span><span><i class="blk"></i>blocked by land</span><span><i class="nrm"></i>shore normal</span></div>
+      </section>` : ''}
+      <section class="card fade-in${hasProfile ? '' : ' span-all'}" aria-labelledby="h-map">
+        <div class="card-h"><h2 id="h-map">${hasRays ? 'Wave rays' : 'Location'}</h2>${hasRays ? '<span class="sub">14 s swell, traced back offshore</span>' : ''}</div>
+        <div class="mini-map" id="mini-map" aria-label="${hasRays ? 'Map showing refracted wave rays reaching the break' : 'Map of the break'}"></div>
+        ${hasRays || hasNormal ? `<div class="legend">${hasRays ? '<span><i></i>open to the ocean</span><span><i class="blk"></i>blocked by land</span>' : ''}${hasNormal ? '<span><i class="nrm"></i>shore normal</span>' : ''}</div>` : ''}
       </section>
 
       <section class="card span-all fade-in" aria-labelledby="h-out">
@@ -618,12 +647,12 @@ function renderSpotBody() {
         <summary>How this is modelled</summary>
         <div class="how-body">
           <dl class="facts">
-            <div><dt>Beach faces</dt><dd>${compass(site.normal)} ${Math.round(site.normal)}°</dd></div>
-            <div><dt>Surf point depth</dt><dd>${Math.abs(site.surf?.depth ?? 0).toFixed(1)} m</dd></div>
-            <div><dt>Nearshore slope</dt><dd>1:${site.slope > 0 ? Math.round(1 / site.slope) : '–'}</dd></div>
-            <div><dt>Wave model cell</dt><dd>${fmtKm(distRef)} away</dd></div>
-            <div><dt>Blocked sectors</dt><dd>${(site.blocked || []).length ? site.blocked.map((b) => `${Math.round(b.from)}–${Math.round(b.to)}°`).slice(0, 3).join(', ') : 'none'}</dd></div>
-            <div><dt>Ray tracing</dt><dd>${site.meta?.ms ? `${Math.round(site.meta.ms)} ms` : '–'}</dd></div>
+            ${hasNormal ? fact('Beach faces', `${compass(site.normal)} ${Math.round(site.normal)}°`) : ''}
+            ${Number.isFinite(site.surf?.depth) ? fact('Surf point depth', `${Math.abs(site.surf.depth).toFixed(1)} m`) : ''}
+            ${site.slope > 0 ? fact('Nearshore slope', `1:${Math.round(1 / site.slope)}`) : ''}
+            ${distRef != null ? fact('Wave model cell', `${fmtKm(distRef)} away`) : ''}
+            ${site.blocked ? fact('Blocked sectors', site.blocked.length ? site.blocked.map((b) => `${Math.round(b.from)}–${Math.round(b.to)}°`).slice(0, 3).join(', ') : 'none') : ''}
+            ${site.meta?.ms ? fact('Site analysis', `${Math.round(site.meta.ms)} ms`) : ''}
           </dl>
           <ol>
             <li><b>Offshore sea state.</b> Hourly swell partitions (primary, secondary, wind waves), wind, tide and water temperature come from Open-Meteo’s marine and weather models for the nearest sea grid cell.</li>
@@ -639,13 +668,13 @@ function renderSpotBody() {
     </div>`;
   body.removeAttribute('aria-busy');
 
-  rebuildReport();
+  renderReport();
 
   // forecast chart
   try {
     S.charts.fc = forecastChart($('#fc-chart'), S.hourly, { units: state.units, onSelect: (i) => setHour(i, { fromChart: true }) });
   } catch (err) { chartError('#fc-chart', err); }
-  try { depthProfile($('#depth'), site, state.units); } catch (err) { chartError('#depth', err); }
+  if (hasProfile) { try { depthProfile($('#depth'), site, state.units); } catch (err) { chartError('#depth', err); } }
 
   setHour(S.i, { initial: true });
   S.charts.fc?.select?.(S.i);
@@ -667,7 +696,7 @@ function renderSpotBody() {
     if (!state.spot) return;
     rebuildReport();
     try { S.charts.fc = forecastChart($('#fc-chart'), S.hourly, { units: state.units, onSelect: (i) => setHour(i, { fromChart: true }) }); S.charts.fc?.select?.(S.i); } catch (err) { chartError('#fc-chart', err); }
-    try { depthProfile($('#depth'), site, state.units); } catch { /* shown before */ }
+    if (hasProfile) { try { depthProfile($('#depth'), site, state.units); } catch { /* shown before */ } }
     setHour(S.i, { initial: true });
   };
   document.addEventListener('glassy:units', onUnits);
@@ -739,12 +768,12 @@ function partsHTML(i) {
       <td class="num">${fh(p.h)}</td>
       <td class="num">${p.t > 0 ? `${p.t.toFixed(1)} s` : '–'}</td>
       <td>${p.h > 0 ? `<span class="dir">${dirArrow(p.dir)}${compass(p.dir)} <span class="dim">${Math.round(p.dir)}°</span></span>` : '–'}</td>
-      <td class="num">${p.h > 0 ? `×${(p.kd ?? 0).toFixed(2)}` : '–'}</td>
-      <td class="num">${fh(p.h0)}</td>
+      <td class="num opt">${p.h > 0 && Number.isFinite(p.kd) ? `×${p.kd.toFixed(2)}` : '–'}</td>
+      <td class="num opt">${fh(p.h0)}</td>
       <td class="num">${fh(p.hb)}</td></tr>`).join('');
   return `<table class="parts"><caption class="sr-only">Swell components for the selected hour, heights in ${ft ? 'feet' : 'metres'}</caption>
-    <thead><tr><th scope="col">Component</th><th class="num" scope="col">Offshore</th><th class="num" scope="col">Period</th><th scope="col">From</th><th class="num" scope="col" title="Refraction / exposure coefficient">K<sub>d</sub></th><th class="num" scope="col">At break</th><th class="num" scope="col">Breaking</th></tr></thead>
-    <tbody>${rows}<tr class="tot"><td>Combined</td><td></td><td></td><td></td><td></td><td></td><td class="num">${fh(h.hb)} ${ft ? 'ft' : 'm'}</td></tr></tbody></table>`;
+    <thead><tr><th scope="col">Component</th><th class="num" scope="col">Offshore</th><th class="num" scope="col">Period</th><th scope="col">From</th><th class="num opt" scope="col" title="Refraction / exposure coefficient">K<sub>d</sub></th><th class="num opt" scope="col">At break</th><th class="num" scope="col">Breaking</th></tr></thead>
+    <tbody>${rows}<tr class="tot"><td>Combined</td><td></td><td></td><td></td><td class="opt"></td><td class="opt"></td><td class="num">${fh(h.hb)} ${ft ? 'ft' : 'm'}</td></tr></tbody></table>`;
 }
 
 function setHour(i, { fromChart = false, initial = false } = {}) {
@@ -767,7 +796,7 @@ function setHour(i, { fromChart = false, initial = false } = {}) {
   $('#parts').innerHTML = partsHTML(i);
   $('#parts-when').textContent = `${fmtDay(h.time)} ${fmtTime(h.time)}`;
 
-  try { swellPolar($('#polar'), S.site, h.parts || []); } catch (err) { chartError('#polar', err); }
+  if ($('#polar')) { try { swellPolar($('#polar'), S.site, h.parts || []); } catch (err) { chartError('#polar', err); } }
 
   // tide for the selected day
   const date = h.time.slice(0, 10);

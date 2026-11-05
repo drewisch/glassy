@@ -316,7 +316,7 @@ function swellParagraph(ctx) {
   const s = [];
   s.push(pick([
     `The main energy is a ${fmtHeight(d.h, units)} ${Math.round(d.t)}-second ${type} from the ${dirTxt}`,
-    `${an(Math.round(d.t))} ${Math.round(d.t)} s ${type} from the ${dirTxt} is doing most of the work, ${fmtHeight(d.h, units)} offshore`,
+    `${an(Math.round(d.t))} ${Math.round(d.t)} s ${type} from the ${dirTxt} is doing most of the work, ${fmtHeight(d.h, units)} ${d.kd == null ? `at ${Math.round(d.depth || 10)} m depth` : 'offshore'}`,
     `The dominant swell is ${type} from the ${dirTxt}: ${fmtHeight(d.h, units)} at ${Math.round(d.t)} s`,
   ], seed));
   const normal = site && Number.isFinite(site.normal) ? site.normal : null;
@@ -330,10 +330,14 @@ function swellParagraph(ctx) {
     else if (diff < 90) rel = `, running almost parallel to this ${faces}-facing coast, so only a fraction gets in`;
     else rel = `, heading away from this ${faces}-facing break, so it will barely register`;
   }
-  const k2 = d.kd * d.kd;
-  const pct = Math.round(Math.min(k2, 1) * 100);
+  const k2 = d.kd == null ? null : d.kd * d.kd;
+  const pct = Math.round(Math.min(k2 ?? 1, 1) * 100);
   let fit;
-  if (k2 >= 0.85) fit = pick(['The break is wide open to this direction.', 'This direction sits right in the break’s swell window.'], seed >>> 2);
+  if (k2 == null) fit = pick([
+    `That size is measured just outside the lineup, after island shelter and refraction over the nearshore reefs and sandbars have taken their cut (Scripps CDIP nearshore model).`,
+    `Those numbers come from the Scripps CDIP model at ${Math.round(d.depth || 10)} m depth, so island shadowing and refraction are already baked in.`,
+  ], seed >>> 2);
+  else if (k2 >= 0.85) fit = pick(['The break is wide open to this direction.', 'This direction sits right in the break’s swell window.'], seed >>> 2);
   else if (k2 >= 0.5) fit = `Refraction over the nearshore bathymetry lets most of it through (about ${pct}% of the energy).`;
   else if (k2 >= 0.2) fit = `Refraction and shelter cut it to roughly ${pct}% of its offshore energy by the time it reaches the lineup.`;
   else fit = `Very little of it (under ${Math.max(pct, 1)}% of the energy) makes it into the lineup.`;
