@@ -580,6 +580,15 @@ export async function analyzeSite(src, lat, lon, loc) {
       kd2[base + i] = acc * w;
     }
   }
+  // light circular smoothing (1-2-3-2-1) so the sparse ray histogram reads as a window
+  {
+    const raw = Float32Array.from(windowArr), k = [1, 2, 3, 2, 1];
+    for (let i = 0; i < NB; i++) {
+      let a = 0;
+      for (let j = -2; j <= 2; j++) a += k[j + 2] * raw[(i + j + NB) % NB];
+      windowArr[i] = a / 9;
+    }
+  }
   let wmax = 0;
   for (let i = 0; i < NB; i++) wmax = Math.max(wmax, windowArr[i]);
   if (wmax > 0) for (let i = 0; i < NB; i++) windowArr[i] /= wmax;
