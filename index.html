@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Glassy — surf forecast</title>
+  <meta name="description" content="Free, lightweight surf forecasts modelled from open swell data, wind and real bathymetry. No ads, no tracking.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f3efe3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#05090f" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://marine-api.open-meteo.com" crossorigin>
+  <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+  <script>
+    // Apply the saved theme before first paint (no flash).
+    try { var t = JSON.parse(localStorage.getItem('glassy:theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/charts.css">
+  <link rel="modulepreload" href="js/main.js">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="i-wave" viewBox="0 0 32 32"><path d="M3 21c4 0 6-2.5 8-6 2.3-4 5-7 9.5-7 3.6 0 6 2.2 6.9 5-2.2-1.3-5.3-.9-6.6 1.5-1.6 2.7-.2 6.3 3.4 6.3H29" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 26.5h26" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".45"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 1.5v3.5M12 19v3.5M1.5 12H5M19 12h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-units" viewBox="0 0 24 24"><path d="M3 17h18M6 17v-3M10 17v-5M14 17v-3M18 17v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 7h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".5"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3L2.9 9.5l6.3-.9z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 3 18 15h-4.5v6h-3v-6H6z" fill="currentColor"/></symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 15-14-1 10-6 15-14 15M5 19l7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="9.8" r="2.3" fill="currentColor"/></symbol>
+  </svg>
+
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top" role="banner">
+    <div class="top-in">
+      <a class="brand" href="#/" aria-label="Glassy home">
+        <svg class="brand-glyph" aria-hidden="true"><use href="#i-wave"/></svg>
+        <span class="brand-word">Glassy</span>
+      </a>
+
+      <div class="search" id="search">
+        <svg class="search-ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Search breaks or places"
+               role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list"
+               aria-label="Search surf breaks or places" enterkeyhint="search">
+        <kbd class="search-kbd" aria-hidden="true">/</kbd>
+        <ul id="q-list" class="search-list" role="listbox" aria-label="Search results" hidden></ul>
+      </div>
+
+      <div class="tools">
+        <button class="icon-btn" id="btn-locate" type="button" aria-label="Spots near me" title="Spots near me">
+          <svg aria-hidden="true"><use href="#i-locate"/></svg>
+        </button>
+        <details class="menu" id="units-menu">
+          <summary class="icon-btn" aria-label="Units" title="Units"><svg aria-hidden="true"><use href="#i-units"/></svg></summary>
+          <div class="menu-pop" role="group" aria-label="Units">
+            <fieldset><legend>Surf &amp; tide</legend>
+              <label><input type="radio" name="u-height" value="ft"><span>ft</span></label>
+              <label><input type="radio" name="u-height" value="m"><span>m</span></label>
+            </fieldset>
+            <fieldset><legend>Wind</legend>
+              <label><input type="radio" name="u-speed" value="kt"><span>kt</span></label>
+              <label><input type="radio" name="u-speed" value="kmh"><span>km/h</span></label>
+              <label><input type="radio" name="u-speed" value="mph"><span>mph</span></label>
+            </fieldset>
+            <fieldset><legend>Temperature</legend>
+              <label><input type="radio" name="u-temp" value="c"><span>°C</span></label>
+              <label><input type="radio" name="u-temp" value="f"><span>°F</span></label>
+            </fieldset>
+          </div>
+        </details>
+        <button class="icon-btn" id="btn-theme" type="button" aria-label="Theme: auto" title="Theme: auto">
+          <svg aria-hidden="true"><use href="#i-auto"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <div class="boot" aria-hidden="true"><div class="sk sk-map"></div></div>
+  </main>
+
+  <div id="status" class="sr-only" role="status" aria-live="polite"></div>
+
+  <footer class="foot" role="contentinfo">
+    <div class="foot-in">
+      <div class="meter" id="meter" title="Bytes this page has transferred this session, and an estimate of the associated emissions">
+        <svg aria-hidden="true"><use href="#i-leaf"/></svg>
+        <span>This session: <b class="mono" id="m-total">0 KB</b></span>
+        <span class="meter-split mono" id="m-split"></span>
+        <span>≈ <b class="mono" id="m-co2">0.00 g</b> CO₂e <small>(estimate, Sustainable Web Design model, 0.36 g/MB)</small></span>
+      </div>
+      <p class="attrib">
+        Swell, wind, tide &amp; water temperature: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0) ·
+        Bathymetry: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (ETOPO1, GEBCO, SRTM, NOAA) ·
+        Map: <a href="https://leafletjs.com">Leaflet</a>, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a> ·
+        Places: Open-Meteo Geocoding, <a href="https://nominatim.org/">Nominatim</a>.
+      </p>
+      <p class="attrib">Modelled, not observed. Never rely on it alone — the ocean doesn't read forecasts. Not for navigation.</p>
+    </div>
+  </footer>
+  <noscript><p class="noscript">Glassy needs JavaScript to fetch and model the forecast.</p></noscript>
+</body>
+</html>

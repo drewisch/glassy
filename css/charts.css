@@ -1,0 +1,116 @@
+/* Glassy charts — nautical chart styling. Colours only via the app's custom properties:
+   --bg --surface --ink --muted --line --accent --water-0..4 --land --r0..--r6 */
+
+.gc { position: relative; min-width: 0; color: var(--ink); }
+.gc-svg {
+  display: block; width: 100%; height: auto; overflow: visible;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-svg text { fill: var(--ink); font-size: 10.5px; }
+.gc-empty {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted); padding: 24px 0; text-align: center;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+
+/* shared marks */
+.gc-grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.gc-base { stroke: var(--ink); stroke-opacity: .55; }
+.gc-tick { stroke: var(--muted); stroke-width: 1; shape-rendering: crispEdges; }
+.gc-svg .gc-axis { fill: var(--muted); font-size: 10px; }
+.gc-svg .gc-unit { font-style: italic; }
+
+/* rating fills */
+.gc .r0 { fill: var(--r0); color: var(--r0); }
+.gc .r1 { fill: var(--r1); color: var(--r1); }
+.gc .r2 { fill: var(--r2); color: var(--r2); }
+.gc .r3 { fill: var(--r3); color: var(--r3); }
+.gc .r4 { fill: var(--r4); color: var(--r4); }
+.gc .r5 { fill: var(--r5); color: var(--r5); }
+.gc .r6 { fill: var(--r6); color: var(--r6); }
+
+/* ---------- forecast chart ---------- */
+.gc-forecast .gc-readout {
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink); min-height: 1.4em; margin: 0 0 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gc-scroll {
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.gc-fc { touch-action: pan-x pan-y; cursor: crosshair; }
+.gc-fc:focus { outline: none; }
+.gc-fc:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.gc-dayband { fill: var(--ink); fill-opacity: .035; }
+.gc-daysep { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.gc-svg .gc-day { font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+.gc-bar { stroke: none; }
+.gc-cap { stroke: none; fill-opacity: .38; }
+.gc-captop { fill: none; stroke: currentColor; stroke-width: 1; shape-rendering: crispEdges; }
+.gc-wind { stroke: none; }
+.gc-wind.wk-glassy { fill: none; stroke: var(--r5); stroke-width: 1.3; }
+.wk-offshore { fill: var(--r5); }
+.wk-cross-off { fill: var(--r4); }
+.wk-cross { fill: var(--r3); }
+.wk-cross-on { fill: var(--r2); }
+.wk-onshore { fill: var(--r1); }
+.gc-svg .gc-spd { fill: var(--muted); font-size: 9px; }
+.gc-hit { fill: transparent; }
+.gc-selblock { fill: var(--accent); fill-opacity: .09; }
+.gc-cursorline { stroke: var(--accent); stroke-width: 1; }
+.gc-cursordot { fill: var(--surface, var(--bg)); stroke: var(--accent); stroke-width: 1.5; }
+
+/* ---------- tide chart ---------- */
+.gc-night { fill: var(--ink); fill-opacity: .05; }
+.gc-waterfill { fill: var(--water-1); fill-opacity: .9; stroke: none; }
+.gc-tideline { fill: none; stroke: var(--water-4); stroke-width: 1.5; stroke-linejoin: round; }
+.gc-msl { stroke: var(--muted); stroke-dasharray: 2 3; }
+.gc-ext { fill: var(--surface, var(--bg)); stroke: var(--ink); stroke-width: 1.25; }
+.gc-svg .gc-extlab { font-size: 11px; }
+.gc-svg .gc-extk { font-weight: 700; fill: var(--accent); }
+.gc-now { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 2; }
+.gc-svg .gc-nowlab { fill: var(--accent); font-size: 10px; font-weight: 600; }
+.gc-selline { stroke: var(--ink); stroke-width: 1; stroke-opacity: .7; }
+.gc-seldot { fill: var(--accent); stroke: var(--surface, var(--bg)); stroke-width: 1.5; }
+
+/* ---------- swell polar ---------- */
+.gc-polar .gc-svg { max-width: 340px; margin: 0 auto; }
+.gc-ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.gc-rim { stroke: var(--ink); stroke-opacity: .6; }
+.gc-spoke { stroke: var(--line); stroke-width: 1; stroke-dasharray: 1 3; }
+.gc-window { fill: var(--water-2); fill-opacity: .75; stroke: var(--water-4); stroke-width: 1; stroke-linejoin: round; }
+.gc-blocked { stroke: none; }
+.gc-hatchline { stroke: var(--muted); stroke-width: 1; stroke-opacity: .6; }
+.gc-blockedrim { fill: none; stroke: var(--muted); stroke-width: 3; stroke-opacity: .5; }
+.gc-svg .gc-cardinal { font-size: 12px; font-weight: 700; fill: var(--ink); }
+.gc-normal { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 4 3; }
+.gc-normalback { stroke-opacity: .35; stroke-dasharray: 1 3; }
+.gc-svg .gc-normallab { font-size: 9.5px; fill: var(--muted); letter-spacing: .04em; }
+.gc-centre { fill: var(--ink); }
+.gc-part line { stroke-linecap: round; }
+.gk-swell line { stroke: var(--accent); }
+.gk-swell path { fill: var(--accent); }
+.gk-swell2 line { stroke: var(--ink); }
+.gk-swell2 path { fill: var(--ink); }
+.gk-windWave line { stroke: var(--muted); }
+.gk-windWave path { fill: var(--muted); }
+.gc-svg .gc-period { font-size: 10.5px; font-weight: 700; }
+.gc-svg .gk-swell .gc-period { fill: var(--accent); }
+.gc-svg .gk-swell2 .gc-period { fill: var(--ink); }
+.gc-svg .gk-windWave .gc-period { fill: var(--muted); }
+
+/* ---------- depth profile ---------- */
+.gc-land { fill: var(--land); stroke: none; }
+.gc-ground { fill: none; stroke: var(--ink); stroke-width: 1; stroke-opacity: .7; stroke-linejoin: round; }
+.gc-gridover { stroke: var(--ink); stroke-opacity: .08; }
+.gc-sealevel { stroke: var(--water-4); stroke-width: 1; }
+.gc-coast { stroke: var(--ink); stroke-width: 1; }
+.gc-surfline { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 2; }
+.gc-surfpt { fill: var(--accent); stroke: var(--surface, var(--bg)); stroke-width: 1.5; }
+.gc-svg .gc-surflab { paint-order: stroke; stroke: var(--surface, var(--bg)); stroke-width: 3px; stroke-linejoin: round; fill: var(--accent); font-size: 10.5px; font-weight: 600; }
+.gc-svg .gc-exag { font-style: italic; }
