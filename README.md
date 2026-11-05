@@ -9,8 +9,9 @@ still be forecast by clicking the map.
 
 ## Features
 
-- **Map home**: an ocean basemap with bathymetry, known breaks as markers, optional live
-  swell arrows, favourites, spots near you (if you allow location) and the California list
+- **Map home**: an ocean basemap with bathymetry, known breaks as markers, animated **swell
+  lines** (the current swell's crests, refracted over the real seafloor and faded in island
+  shadows), favourites, spots near you (if you allow location) and the California list
   grouped by region (Santa Barbara coast first).
 - **Any point**: click a coastline (or search a place) to open `#/at/lat,lon`. The point is
   snapped to the coast and modelled from scratch, and its name comes from reverse geocoding.
@@ -60,7 +61,10 @@ still be forecast by clicking the map.
    seven-step rating (flat to epic). Tide extremes, best windows, wetsuit advice and the
    prose all come from these numbers by rules.
 
-Elevation tiles are only used for the 3D seabed view on California spots.
+Elevation tiles are only used for the 3D seabed view on California spots and for the swell
+lines on the home map. Those solve the eikonal `|∇τ| = 1/c(depth, T)` by fast sweeping on a
+~4 px screen grid (z5–z10 bathymetry), draw crests as level sets of τ, and fade them where the
+straight path back to the open ocean crosses land.
 
 ### Elsewhere (fallback)
 Where there is no MOP coverage, Glassy models the nearshore itself: Open-Meteo offshore
@@ -109,7 +113,8 @@ developing.
 |---|---|
 | `index.html`, `css/app.css`, `css/charts.css` | shell and styles |
 | `js/main.js` | routing, state, pages, data meter |
-| `js/map.js` | Leaflet map (lazy loaded), markers, rays, swell arrows |
+| `js/map.js` | Leaflet map (lazy loaded), markers, rays |
+| `js/swellmap.js` | home-map swell crest lines (eikonal over bathymetry, canvas) |
 | `js/nearshore.js` | CDIP MOP nearshore forecasts, spectrum partitioning, NOAA tides |
 | `js/api.js`, `js/net.js` | Open-Meteo / Nominatim requests with byte counting |
 | `js/geo.js`, `js/geo.worker.js`, `js/terrain.js` | bathymetry analysis and ray tracing in a worker |

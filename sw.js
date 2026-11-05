@@ -1,5 +1,5 @@
 // Glassy service worker. Bump VERSION whenever shell files change.
-const VERSION = 'glassy-v2';
+const VERSION = 'glassy-v3';
 const SHELL_CACHE = `${VERSION}-shell`;
 const API_CACHE = 'glassy-api-v1';
 const TERRAIN_CACHE = 'glassy-terrain-v1';
@@ -28,6 +28,7 @@ const SHELL = [
   'js/report.js',
   'js/charts.js',
   'js/map.js',
+  'js/swellmap.js',
   'js/scene3d.js',
   'manifest.webmanifest',
   'icon.svg',

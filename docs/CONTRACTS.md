@@ -22,6 +22,7 @@ formatted with `timeZone: 'UTC'` so the spot's local time shows regardless of vi
 | js/charts.js | SVG charts |
 | js/scene3d.js | WebGL2 diorama |
 | js/map.js | Leaflet map |
+| js/swellmap.js | swell crest lines on the home map |
 | js/main.js | app shell, routing, state |
 | index.html, css/app.css, sw.js, manifest.webmanifest, icon.svg | shell |
 
@@ -35,6 +36,7 @@ export async function getForecast(lat, lon)  // -> Forecast
 export async function geocode(query)          // -> [{name, admin, country, lat, lon}] (Open-Meteo geocoding, count=6)
 export async function reverseGeocode(lat, lon)// -> {name, region, country} via Nominatim (zoom=12), never throws (fallback name 'Dropped pin')
 export async function currentSwellMany(points)// points [{lat,lon}] (<=60, one multi-location marine request, current=swell_wave_height,swell_wave_period,swell_wave_direction) -> [{h,t,dir}|null]
+export async function currentSwellAt(lat, lon) // nearest sea cell, current primary + secondary swell -> {primary:{h,t,dir}|null, secondary:{h,t,dir}|null}; cached 30 min per 0.25°
 ```
 `Forecast`:
 ```js
@@ -132,9 +134,15 @@ Raw WebGL2: terrain mesh (vertical exaggeration ~2–4x, nautical colouring by d
 
 ## js/map.js
 ```js
-export function createMap(el, {onPick({lat,lon}), onSpot(id)}) // -> {showSpot(spot, site), setTheme(dark), showSwellArrows(bool), invalidate()}
+export function createMap(el, {onPick({lat,lon}), onSpot(id), units?: () => units, eco?: bool}) // -> {showSpot(spot, site), setTheme(dark), showSwell(bool), refreshSwell(), invalidate()}
 ```
-Leaflet 1.9.4 (global L), CARTO light_all / dark_all basemaps, preferCanvas, spot circle markers, click on map = onPick, ray overlay (site.rays, open vs blocked styles), surf point & normal arrow, optional swell-arrow layer using api.currentSwellMany for visible spots (debounced on moveend).
+Leaflet 1.9.4 (global L), Esri ocean / dark-gray basemaps (CARTO now needs a key), preferCanvas, spot circle markers, click on map = onPick, ray overlay (site.rays, open vs blocked styles), surf point & normal arrow, optional swell crest lines (js/swellmap.js, imported on first `showSwell(true)`; `showSwellArrows` is an alias).
+
+## js/swellmap.js
+```js
+export function createSwellLayer(map, L, {units, eco}) // -> {setVisible(bool), setEco(bool), setTheme(dark), refresh(), remove()}
+```
+Canvas in its own map pane (between tiles and labels) covering the view plus a small margin. On `moveend` (debounced 250 ms) it fetches `api.currentSwellAt(view centre)` and terrarium tiles at `zt = clamp(zoom − 2, 5, 10)` (never above z10: no seabed there), samples depth on a 4 px grid, and per swell (secondary if h > 0.3 m) solves `|∇τ| = k(d)/k0` (Fenton–McKee, capped at 3) by fast sweeping from a plane wave on the upwind edges, land as obstacles. Crests are level sets `τ = (n + phase)·Δ`, Δ = 16–22 px by period, drawn by marching squares with opacity from a straight-line visibility field (blurred across the travel direction) and a shore fade. Colours `--crest`, `--crest-2`; legend chip with fmtHeight/compass. Animated (≤24 fps, one spacing per 2.5 s) only while on screen and the tab is visible; still frame in eco mode or with prefers-reduced-motion; hidden during zoom, frozen while panning. Visible between zoom 6 and 14.
 
 ## Design
 Sustainable web design: system fonts only, tiny payload, lazy load heavy parts (3D only when
@@ -143,4 +151,4 @@ scrolled into view, map tiles only when map visible). Nautical chart palette in 
 ECDIS night palette in dark mode (near-black blue bg, dim cyan/amber, low luminance). Spot
 names in italic serif (`'Iowan Old Style', Palatino, 'Palatino Linotype', Georgia, serif`),
 data in `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`. CSS custom properties:
-`--bg --surface --ink --muted --line --accent --water-0..4 --land --r0..--r6` (rating colours).
+`--bg --surface --ink --muted --line --accent --water-0..4 --land --crest --crest-2 --r0..--r6` (rating colours).

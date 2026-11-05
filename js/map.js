@@ -1,10 +1,9 @@
-// Leaflet map: spot markers, click-to-pick, ray overlay, optional live swell arrows.
+// Leaflet map: spot markers, click-to-pick, ray overlay, optional swell crest lines.
 // Leaflet (global L) is injected lazily from cdnjs the first time a map is created,
 // so pages without a map never download it. createMap() returns its API immediately;
 // calls made before Leaflet arrives are queued on `ready`.
 
 import { SPOTS } from './spots.js';
-import { currentSwellMany } from './api.js';
 
 const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
 const SRI = {
@@ -82,27 +81,16 @@ function dest(lat, lon, brg, dist) {
   return [lat + (dLat * 180) / Math.PI, lon + (dLon * 180) / Math.PI];
 }
 
-function arrowSvg(deg, len, color, label) {
-  // arrow points the way the swell travels (from-direction + 180)
-  const L = Math.round(len);
-  return `<svg width="44" height="44" viewBox="-22 -22 44 44" aria-hidden="true" style="overflow:visible">
-    <g transform="rotate(${(deg + 180) % 360})" stroke="${color}" fill="${color}" stroke-linecap="round">
-      <line x1="0" y1="${L / 2}" x2="0" y2="${-L / 2 + 4}" stroke-width="2"/>
-      <path d="M0 ${-L / 2 - 2} L4.5 ${-L / 2 + 6} L-4.5 ${-L / 2 + 6} Z" stroke="none"/>
-    </g>${label ? `<text x="0" y="20" text-anchor="middle" class="swell-arrow-label">${label}</text>` : ''}
-  </svg>`;
-}
-
 /**
  * @param {HTMLElement} el
- * @param {{onPick?:Function, onSpot?:Function, compact?:boolean, view?:{lat,lon,zoom}, spots?:Array}} opts
- *   (compact/view/spots are optional extras beyond the contract)
+ * @param {{onPick?:Function, onSpot?:Function, compact?:boolean, view?:{lat,lon,zoom}, spots?:Array,
+ *   units?:Function, eco?:boolean}} opts  (all but onPick/onSpot are optional extras beyond the contract;
+ *   units is a getter for the swell legend's units, eco asks the swell lines for a still frame)
  */
-export function createMap(el, { onPick, onSpot, compact = false, view, spots = SPOTS } = {}) {
-  let map, tiles = [], markers = [], spotLayer, rayLayer, arrowLayer, dark = false, arrowsOn = false;
+export function createMap(el, { onPick, onSpot, compact = false, view, spots = SPOTS, units, eco = false } = {}) {
+  let map, tiles = [], markers = [], spotLayer, rayLayer, dark = false;
   let disposed = false;
-  const swellCache = new Map(); // spot id -> {v, at}
-  let arrowTimer = 0, arrowSeq = 0;
+  let swellOn = false, swellP = null; // swell crest layer (js/swellmap.js), imported on first use
 
   const ready = loadLeaflet().then((L) => {
     if (disposed) return null;
@@ -135,7 +123,6 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
       map.on('click', (e) => onPick({ lat: +e.latlng.lat.toFixed(4), lon: +wrapLon(e.latlng.lng).toFixed(4) }));
       el.classList.add('map-pickable');
     }
-    map.on('moveend', scheduleArrows);
     return map;
   });
 
@@ -172,47 +159,17 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
     });
   }
 
-  // ---- swell arrows ----
-  function scheduleArrows() {
-    clearTimeout(arrowTimer);
-    if (!arrowsOn) return;
-    arrowTimer = setTimeout(updateArrows, 600);
+  // ---- swell crest lines ----
+  function syncSwell() {
+    if (!map || disposed) return;
+    if (swellOn && !swellP) {
+      swellP = import('./swellmap.js')
+        .then((m) => (disposed ? null : m.createSwellLayer(map, window.L, { units, eco })))
+        .catch((err) => { console.warn('swell lines', err); swellP = null; return null; });
+    }
+    swellP?.then((layer) => layer && layer.setVisible(swellOn));
   }
-  async function updateArrows() {
-    if (!map || !arrowsOn) return;
-    const L = window.L;
-    const seq = ++arrowSeq;
-    const b = map.getBounds().pad(0.05);
-    const z = map.getZoom();
-    let vis = spots.filter((s) => b.contains([s.lat, s.lon]) || b.contains([s.lat, s.lon + 360]) || b.contains([s.lat, s.lon - 360]));
-    if (vis.length > 60) {
-      // thin out: keep spots spread over the view
-      const step = vis.length / 60;
-      vis = Array.from({ length: 60 }, (_, k) => vis[Math.floor(k * step)]);
-    }
-    const now = Date.now();
-    const need = vis.filter((s) => !(swellCache.get(s.id)?.at > now - 30 * 60e3));
-    if (need.length) {
-      try {
-        const res = await currentSwellMany(need.map((s) => ({ lat: s.lat, lon: s.lon })));
-        need.forEach((s, k) => swellCache.set(s.id, { v: res?.[k] || null, at: now }));
-      } catch { /* network errors: just skip arrows */ }
-    }
-    if (seq !== arrowSeq || !arrowsOn) return;
-    if (!arrowLayer) arrowLayer = L.layerGroup().addTo(map);
-    arrowLayer.clearLayers();
-    const color = cssVar('--water-ink', cssVar('--ink', '#14263a'));
-    for (const s of vis) {
-      const v = swellCache.get(s.id)?.v;
-      if (!v || !(v.h > 0)) continue;
-      const len = Math.max(12, Math.min(34, 10 + v.h * 7));
-      const label = z >= 10 ? `${v.h.toFixed(1)}m ${Math.round(v.t)}s` : '';
-      L.marker([s.lat, s.lon], {
-        icon: L.divIcon({ className: 'swell-arrow', html: arrowSvg(v.dir, len, color, label), iconSize: [44, 44], iconAnchor: [22, 22] }),
-        interactive: false, keyboard: false,
-      }).addTo(arrowLayer);
-    }
-  }
+  const withSwell = (fn) => swellP?.then((layer) => layer && fn(layer));
 
   // ---- spot / ray overlay ----
   function showSpotImpl(spot, site) {
@@ -268,18 +225,17 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
         setTiles(window.L);
         const st = spotStyle();
         markers.forEach((mk) => mk.setStyle(st));
-        if (arrowsOn) updateArrows();
+        withSwell((l) => l.setTheme(dark));
       });
     },
-    showSwellArrows(on) {
-      arrowsOn = !!on;
-      ready.then((m) => {
-        if (!m) return;
-        if (arrowsOn) updateArrows();
-        else if (arrowLayer) arrowLayer.clearLayers();
-      });
+    showSwell(on) {
+      swellOn = !!on;
+      ready.then(syncSwell);
     },
+    showSwellArrows(on) { api.showSwell(on); }, // old name, kept for safety
     invalidate() { ready.then((m) => m && m.invalidateSize()); },
+    refreshSwell() { withSwell((l) => l.refresh()); },
+    setEco(v) { eco = !!v; withSwell((l) => l.setEco(eco)); },
     // extras (not in the contract, used by main.js)
     flyTo(lat, lon, zoom = 8) { ready.then((m) => m && m.flyTo([lat, lon], zoom, { duration: 0.8 })); },
     marker(lat, lon, label) {
@@ -289,7 +245,7 @@ export function createMap(el, { onPick, onSpot, compact = false, view, spots = S
           .addTo(m).bindTooltip(label || 'You', { permanent: false });
       });
     },
-    dispose() { disposed = true; clearTimeout(arrowTimer); ready.then((m) => m && m.remove()); },
+    dispose() { disposed = true; withSwell((l) => l.remove()); ready.then((m) => m && m.remove()); },
   };
   return api;
 }

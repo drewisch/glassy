@@ -144,6 +144,23 @@ export async function reverseGeocode(lat, lon) {
   }
 }
 
+/**
+ * Current primary + secondary swell at the sea cell nearest a point ->
+ * {primary: {h,t,dir}|null, secondary: {h,t,dir}|null}. Cached 30 min per 0.25° cell.
+ */
+export async function currentSwellAt(lat, lon) {
+  const q = (v) => (Math.round(v * 4) / 4).toFixed(2);
+  const la = q(+lat), lo = q(((((+lon + 180) % 360) + 360) % 360) - 180);
+  const vars = ['', 'secondary_'].map((p) => `${p}swell_wave_height,${p}swell_wave_period,${p}swell_wave_direction`).join(',');
+  const j = await cached(`cs:${la},${lo}`, () => getJSON(`${MARINE}?latitude=${la}&longitude=${lo}&cell_selection=sea&current=${vars}`, { retries: 1 }));
+  const c = j.current || {};
+  const get = (p) => {
+    const h = num(c[`${p}swell_wave_height`]);
+    return h > 0 ? { h, t: num(c[`${p}swell_wave_period`]) ?? 0, dir: num(c[`${p}swell_wave_direction`]) ?? 0 } : null;
+  };
+  return { primary: get(''), secondary: get('secondary_') };
+}
+
 /** Current primary swell for many points in one multi-location request -> [{h,t,dir}|null]. */
 export async function currentSwellMany(points) {
   const out = new Array(points.length).fill(null);

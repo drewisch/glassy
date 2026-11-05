@@ -330,7 +330,7 @@ function renderHome(main) {
         <div class="map" id="home-map" role="application" aria-label="Map of California surf breaks, centred on the Santa Barbara Channel. Click a marker to open a break, or anywhere on the coast for a custom forecast."></div>
         <div class="map-overlay">
           <div class="map-hint"><b>Tap any coastline</b><span class="muted">Markers are known breaks. Click anywhere else and Glassy models that exact spot from the seabed up.</span></div>
-          <button class="btn small" id="arrows-btn" type="button" aria-pressed="${state.arrows}">Swell arrows</button>
+          <button class="btn small" id="arrows-btn" type="button" aria-pressed="${state.arrows}" title="Wave crests of the current swell, refracted over the seafloor">Swell lines</button>
         </div>
       </div>
     </section>
@@ -352,11 +352,13 @@ function renderHome(main) {
   const map = createMap($('#home-map'), {
     spots: SCOPE,
     view: SCOPE_VIEW,
+    units: () => state.units,
+    eco: state.eco,
     onPick: ({ lat, lon }) => { location.hash = `#/at/${lat.toFixed(4)},${lon.toFixed(4)}`; },
     onSpot: (id) => { location.hash = `#/spot/${id}`; },
   });
   map.setTheme(isDark());
-  map.showSwellArrows(state.arrows);
+  map.showSwell(state.arrows);
   map.ready.catch(() => { $('#home-map').innerHTML = `<div class="scene-status">Map unavailable offline. Use search or the list below.</div>`; });
   const onTheme = (e) => map.setTheme(e.detail);
   document.addEventListener('glassy:theme', onTheme);
@@ -364,7 +366,7 @@ function renderHome(main) {
   $('#arrows-btn').addEventListener('click', (e) => {
     state.arrows = !state.arrows; store.set('arrows', state.arrows);
     e.currentTarget.setAttribute('aria-pressed', state.arrows);
-    map.showSwellArrows(state.arrows);
+    map.showSwell(state.arrows);
   });
 
   // favourites
@@ -410,7 +412,7 @@ function renderHome(main) {
     if (p.state === 'granted') locate({ quiet: true }).then((me) => me && showNear(me));
   }).catch(() => {});
 
-  const onUnits = () => fillSwell(state.favs);
+  const onUnits = () => { fillSwell(state.favs); map.refreshSwell(); };
   document.addEventListener('glassy:units', onUnits);
   onLeave(() => document.removeEventListener('glassy:units', onUnits));
   focusMain($('.intro h1'));
