@@ -67,13 +67,15 @@ export function getForecast(lat, lon) {
 
 async function loadForecast(la, lo) {
   const common = `latitude=${la}&longitude=${lo}&forecast_days=8&timezone=auto`;
+  // The marine model is optional: in California the swell comes from CDIP MOP and only the
+  // water temperature is taken from here, so a failed marine call shouldn't sink the page.
   const [m, w] = await Promise.all([
-    getJSON(`${MARINE}?${common}&cell_selection=sea&hourly=${MARINE_VARS}`),
+    getJSON(`${MARINE}?${common}&cell_selection=sea&hourly=${MARINE_VARS}`).catch((err) => { console.warn('marine', err); return null; }),
     getJSON(`${WEATHER}?${common}&hourly=${WEATHER_VARS}&daily=sunrise,sunset&wind_speed_unit=ms`),
   ]);
-  const mh = m.hourly || {};
+  const mh = m?.hourly || {};
   const wh = w.hourly || {};
-  const time = mh.time || [];
+  const time = mh.time || wh.time || [];
   const wIdx = new Map((wh.time || []).map((t, i) => [t, i]));
 
   const swell = [], swell2 = [], windWave = [], waveHeight = [], tide = [], sst = [];
@@ -104,9 +106,10 @@ async function loadForecast(la, lo) {
   const daily = (d.time || []).map((date, i) => ({ date, sunrise: d.sunrise?.[i] || null, sunset: d.sunset?.[i] || null }));
 
   return {
-    ref: { lat: m.latitude, lon: m.longitude },
-    timezone: m.timezone || w.timezone,
-    utcOffsetSeconds: m.utc_offset_seconds ?? w.utc_offset_seconds ?? 0,
+    ref: m ? { lat: m.latitude, lon: m.longitude } : null,
+    marine: !!m,
+    timezone: m?.timezone || w.timezone,
+    utcOffsetSeconds: m?.utc_offset_seconds ?? w.utc_offset_seconds ?? 0,
     time, swell, swell2, windWave, waveHeight, tide, sst, wind, airTemp, weatherCode, daily,
   };
 }

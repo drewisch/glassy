@@ -5,6 +5,7 @@ import { bytesUsed, onBytes } from './net.js';
 import * as api from './api.js';
 import * as geo from './geo.js';
 import { computeSurf, bestWindows, RATINGS } from './model.js';
+import { attachNearshore, inCalifornia as hasNearshore } from './nearshore.js';
 import { buildReport, fmtRange, fmtSpeed, fmtTemp, fmtTide, compass, fmtTime, fmtDay, bodyRange } from './report.js';
 import { forecastChart, tideChart, swellPolar, depthProfile } from './charts.js';
 import { createMap, tileBytes, onTileBytes } from './map.js';
@@ -499,9 +500,27 @@ async function renderSpot(main, spot) {
  */
 async function loadSpotData(spot, { onProgress = () => {} } = {}) {
   const { lat, lon } = spot;
+  if (hasNearshore(lat, lon)) {
+    const forecast = await api.getForecast(lat, lon);
+    onProgress('Wind and weather in. Fetching the Scripps nearshore model…');
+    const ok = await attachNearshore(forecast, lat, lon).catch((err) => { console.warn('nearshore', err); return null; });
+    if (ok) {
+      const m = forecast.sources.mop;
+      const site = {
+        source: 'mop', input: { lat, lon }, normal: m.normal,
+        coast: { lat: m.lat, lon: m.lon }, surf: { lat: m.lat, lon: m.lon, depth: m.depth },
+        meta: { mop: m, tideStation: forecast.sources.tideStation },
+      };
+      const hourly = computeSurf(site, forecast, null);
+      if (!hourly?.length) throw new Error('The forecast came back empty.');
+      return { site, forecast, refOpen: null, hourly, report: makeReport(spot, site, hourly, forecast) };
+    }
+    onProgress('No nearshore model here. Tracing rays over the bathymetry instead…');
+  }
   const fP = api.getForecast(lat, lon).then((x) => { onProgress('Swell in. Tracing rays over the bathymetry…'); return x; });
   const sP = geo.analyzeSite(lat, lon).then((x) => { onProgress('Seafloor mapped. Waiting for the swell model…'); return x; });
   const [forecast, site] = await Promise.all([fP, sP]);
+  if (!forecast.marine) throw new Error('The swell model is unavailable right now. Try again in a minute.');
   onProgress('Correcting for the model grid cell’s exposure…');
   const refOpen = forecast.ref ? await geo.referenceExposure(forecast.ref.lat, forecast.ref.lon).catch(() => null) : null;
   const hourly = computeSurf(site, forecast, refOpen);
@@ -522,7 +541,10 @@ function makeReport(spot, site, hourly, forecast) {
 function showSpotError(main, err, retry) {
   const msg = String(err?.message || err || 'Unknown error');
   let title = 'Couldn’t build a forecast here', text = msg;
-  if (/ocean|sea|water|coast/i.test(msg)) { title = 'No ocean found nearby'; }
+  if (/ocean|sea|water|coast/i.test(msg)) {
+    title = 'No ocean found nearby';
+    if (msg.trim().replace(/\.$/, '').toLowerCase() === title.toLowerCase()) text = 'Glassy couldn’t find a coastline close to this point. Try clicking right on the shore, or pick a break from the map.';
+  }
   else if (/fetch|network|offline|load/i.test(msg) || !navigator.onLine) { title = 'Can’t reach the forecast servers'; text = navigator.onLine ? msg : 'You appear to be offline. Previously viewed spots may still work.'; }
   const body = $('#spot-body');
   (body || main).innerHTML = errorHTML(title, text, true);
@@ -584,7 +606,8 @@ function renderSpotBody() {
   const body = $('#spot-body');
   // Optional site layers (a nearshore-model data source may not provide them)
   const hasNormal = Number.isFinite(site.normal);
-  const hasWindow = !!site.window?.length;
+  const hasWindow = !!site.window?.length || hasNormal;
+  const isMop = site.source === 'mop';
   const hasProfile = (site.profile?.length || 0) >= 2;
   const hasRays = !!site.rays?.length;
   const distRef = fc.ref ? haversineKm(site.surf || spot, fc.ref) : null;
@@ -598,18 +621,20 @@ function renderSpotBody() {
       <section class="card report fade-in" id="report" aria-label="Surf report"></section>
 
       <section class="card span-all fade-in" aria-labelledby="h-fc">
-        <div class="card-h"><h2 id="h-fc">8-day forecast</h2><span class="sub">tap a bar to inspect an hour</span></div>
+        <div class="card-h"><h2 id="h-fc">${Math.round(S.hourly.length / 24)}-day forecast</h2><span class="sub">tap a bar to inspect an hour</span></div>
         <div class="chart-box tall" id="fc-chart"></div>
       </section>
 
       ${hasWindow ? `<section class="card fade-in" aria-labelledby="h-polar">
-        <div class="card-h"><h2 id="h-polar">Swell window</h2><span class="sub">which directions reach this break</span></div>
+        <div class="card-h"><h2 id="h-polar">${site.window?.length ? 'Swell window' : 'Swell direction'}</h2><span class="sub">${site.window?.length ? 'which directions reach this break' : 'swell arriving vs. the way the beach faces'}</span></div>
         <div class="chart-box" id="polar"></div>
       </section>` : ''}
       <section class="card fade-in${hasWindow ? '' : ' span-all'}" aria-labelledby="h-parts">
         <div class="card-h"><h2 id="h-parts">Swell components</h2><span class="sub mono" id="parts-when"></span></div>
         <div class="tbl-wrap" id="parts"></div>
-        <p class="chart-note">Offshore height is from the Open-Meteo wave model; <i>at break</i> is after refraction &amp; island shadowing (K<sub>d</sub>); breaking height uses Komar–Gaughan.</p>
+        <p class="chart-note">${isMop
+          ? `Heights at ${Math.round(site.surf.depth)} m depth are from the Scripps CDIP nearshore model (refraction and island shadowing included), split into swell systems; breaking height uses Komar–Gaughan.`
+          : 'Offshore height is from the Open-Meteo wave model; <i>at break</i> is after refraction &amp; island shadowing (K<sub>d</sub>); breaking height uses Komar–Gaughan.'}</p>
       </section>
 
 
@@ -650,11 +675,20 @@ function renderSpotBody() {
             ${hasNormal ? fact('Beach faces', `${compass(site.normal)} ${Math.round(site.normal)}°`) : ''}
             ${Number.isFinite(site.surf?.depth) ? fact('Surf point depth', `${Math.abs(site.surf.depth).toFixed(1)} m`) : ''}
             ${site.slope > 0 ? fact('Nearshore slope', `1:${Math.round(1 / site.slope)}`) : ''}
-            ${distRef != null ? fact('Wave model cell', `${fmtKm(distRef)} away`) : ''}
+            ${isMop ? fact('Nearshore model point', `CDIP ${esc(site.meta.mop.label)}`) : ''}
+            ${isMop && site.meta.tideStation ? fact('Tide station', esc(site.meta.tideStation.name)) : ''}
+            ${!isMop && distRef != null ? fact('Wave model cell', `${fmtKm(distRef)} away`) : ''}
             ${site.blocked ? fact('Blocked sectors', site.blocked.length ? site.blocked.map((b) => `${Math.round(b.from)}–${Math.round(b.to)}°`).slice(0, 3).join(', ') : 'none') : ''}
             ${site.meta?.ms ? fact('Site analysis', `${Math.round(site.meta.ms)} ms`) : ''}
           </dl>
-          <ol>
+          ${isMop ? `<ol>
+            <li><b>Nearshore swell.</b> Scripps Institution of Oceanography’s <a href="https://cdip.ucsd.edu/m/products/?nav=forecast" rel="noopener">CDIP MOP</a> model forecasts the wave spectrum at ${Math.round(site.surf.depth)} m depth every ~100 m of the California coast. It back-traces rays from each point over high-resolution bathymetry, so refraction and Channel Islands shadowing are already in the numbers. This break uses point ${esc(site.meta.mop.label)}, ${fmtKm(site.meta.mop.distKm)} from the spot.</li>
+            <li><b>Swell systems.</b> The spectrum is split at its valleys into separate swells (height, peak period, mean direction), merging weak or overlapping systems.</li>
+            <li><b>To the break.</b> Each swell is un-shoaled from ${Math.round(site.surf.depth)} m to a deep-water equivalent, refracted the last stretch toward the shore normal (${Math.round(site.normal)}°), and broken with Komar–Gaughan, <code>Hb = 0.39·g<sup>0.2</sup>(T·H0′²)<sup>0.4</sup></code>. Face heights shown are 0.55–0.85 × Hb.</li>
+            <li><b>Wind, weather, tide.</b> Wind and weather are from Open-Meteo; tides are NOAA harmonic predictions${site.meta.tideStation ? ` for ${esc(site.meta.tideStation.name)} (${fmtKm(site.meta.tideStation.distKm)} away)` : ''}, relative to mean lower low water.</li>
+            <li><b>Rating.</b> Height, period and wind relative to the shore (offshore is good, onshore bad, under 2 m/s glassy) combine into a seven-step rating. The report is written from these numbers by rules, not by a language model.</li>
+          </ol>
+          <p class="muted">Limitations: no reef or point-specific breaking behaviour, tide effects on breaking are not modelled, and the forecasts behind it can be wrong. Treat it as an informed estimate.</p>` : `<ol>
             <li><b>Offshore sea state.</b> Hourly swell partitions (primary, secondary, wind waves), wind, tide and water temperature come from Open-Meteo’s marine and weather models for the nearest sea grid cell.</li>
             <li><b>The seabed.</b> Terrain tiles (z12 near the break, z8 for the wider ocean) are decoded in a background worker. Glassy snaps your point to the coastline, finds the shore normal, and picks a surf point at about 8 m depth.</li>
             <li><b>Refraction &amp; shadowing.</b> From the surf point, rays are traced backwards for nine wave periods using Snell’s law over smoothed depth. Rays that hit land are blocked; the rest give a directional coefficient K<sub>d</sub>² for each period and offshore direction, spread over a realistic directional spectrum.</li>
@@ -662,7 +696,7 @@ function renderSpotBody() {
             <li><b>Breaking.</b> Each component is transformed (<code>H0′ = H·K<sub>d</sub></code>) and broken with Komar–Gaughan, <code>Hb = 0.39·g<sup>0.2</sup>(T·H0′²)<sup>0.4</sup></code>, then combined as the root sum of squares. Face heights shown are 0.55–0.85 × Hb.</li>
             <li><b>Rating.</b> Height, period and wind relative to the shore (offshore is good, onshore bad, under 2 m/s glassy) combine into a seven-step rating. The report is written from these numbers by rules, not by a language model.</li>
           </ol>
-          <p class="muted">Limitations: no sandbar detail finer than ~30 m, no reef/point-specific breaking, tide effects on breaking are not modelled, and the wave model itself can be wrong. Treat it as an informed estimate.</p>
+          <p class="muted">Limitations: no sandbar detail finer than ~30 m, no reef/point-specific breaking, tide effects on breaking are not modelled, and the wave model itself can be wrong. Treat it as an informed estimate.</p>`}
         </div>
       </details>
     </div>`;
@@ -763,17 +797,18 @@ function partsHTML(i) {
   const h = state.spot.hourly[i], u = state.units;
   const ft = u.height !== 'm';
   const fh = (m) => (m > 0 ? (ft ? (m * 3.28084).toFixed(1) : m.toFixed(2)) : '–');
+  const mop = state.spot.site.source === 'mop';
   const rows = (h.parts || []).map((p) => `<tr>
       <td>${esc(PART_LABEL[p.kind] || p.kind)}</td>
       <td class="num">${fh(p.h)}</td>
       <td class="num">${p.t > 0 ? `${p.t.toFixed(1)} s` : '–'}</td>
       <td>${p.h > 0 ? `<span class="dir">${dirArrow(p.dir)}${compass(p.dir)} <span class="dim">${Math.round(p.dir)}°</span></span>` : '–'}</td>
-      <td class="num opt">${p.h > 0 && Number.isFinite(p.kd) ? `×${p.kd.toFixed(2)}` : '–'}</td>
+      ${mop ? '' : `<td class="num opt">${p.h > 0 && Number.isFinite(p.kd) ? `×${p.kd.toFixed(2)}` : '–'}</td>`}
       <td class="num opt">${fh(p.h0)}</td>
       <td class="num">${fh(p.hb)}</td></tr>`).join('');
   return `<table class="parts"><caption class="sr-only">Swell components for the selected hour, heights in ${ft ? 'feet' : 'metres'}</caption>
-    <thead><tr><th scope="col">Component</th><th class="num" scope="col">Offshore</th><th class="num" scope="col">Period</th><th scope="col">From</th><th class="num opt" scope="col" title="Refraction / exposure coefficient">K<sub>d</sub></th><th class="num opt" scope="col">At break</th><th class="num" scope="col">Breaking</th></tr></thead>
-    <tbody>${rows}<tr class="tot"><td>Combined</td><td></td><td></td><td></td><td class="opt"></td><td class="opt"></td><td class="num">${fh(h.hb)} ${ft ? 'ft' : 'm'}</td></tr></tbody></table>`;
+    <thead><tr><th scope="col">Component</th><th class="num" scope="col">${mop ? `At ${Math.round(state.spot.site.surf.depth)} m` : 'Offshore'}</th><th class="num" scope="col">Period</th><th scope="col">From</th>${mop ? '' : '<th class="num opt" scope="col" title="Refraction / exposure coefficient">K<sub>d</sub></th>'}<th class="num opt" scope="col" title="Equivalent deep-water height after refraction">Deep-water eq.</th><th class="num" scope="col">Breaking</th></tr></thead>
+    <tbody>${rows}<tr class="tot"><td>Combined</td><td></td><td></td><td></td>${mop ? '' : '<td class="opt"></td>'}<td class="opt"></td><td class="num">${fh(h.hb)} ${ft ? 'ft' : 'm'}</td></tr></tbody></table>`;
 }
 
 function setHour(i, { fromChart = false, initial = false } = {}) {

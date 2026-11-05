@@ -39,33 +39,46 @@ still be forecast by clicking the map.
 
 ## How the model works
 
-1. **Offshore sea state**: Open-Meteo marine and weather models give hourly primary swell,
-   secondary swell and wind-wave partitions (height, period, direction), plus wind, tide
-   (sea level), sea-surface temperature and air temperature for the nearest sea grid cell.
-2. **Seabed**: a Web Worker downloads AWS Terrain Tiles (Terrarium PNG, metres = R·256 + G +
-   B/256 − 32768): zoom 12 around the break and zoom 8 for the open ocean. It snaps the
-   point to the coastline, finds the seaward shore normal, and picks a "surf point" at about
-   8 m depth.
-3. **Refraction and shadowing**: from the surf point, rays are traced backwards for nine
-   periods (6–22 s) with Snell's law over smoothed depth. Rays that hit land are blocked.
-   The rays that reach open ocean give a coefficient K<sub>d</sub>² for each period and
-   offshore direction, convolved with directional spreading.
-4. **Exposure correction**: the wave-model grid cell may be sheltered itself, so its own
-   openness is divided out (floored at 0.2). K<sub>d</sub>² is capped at 1.3.
-5. **Breaking**: each partition is transformed (`H0′ = H·Kd`) and broken with Komar–Gaughan
-   `Hb = 0.39·g^0.2·(T·H0′²)^0.4`. The partitions combine as `sqrt(Σ Hb²)`, and the face
+### California (primary)
+1. **Nearshore swell**: Scripps Institution of Oceanography's
+   [CDIP MOP](https://cdip.ucsd.edu/) model publishes spectral wave forecasts at 10 m depth
+   every ~100 m of California coastline (about 11,600 points, ~7 days ahead). It back-traces
+   rays from each point over high-resolution bathymetry, so refraction and Channel Islands
+   shadowing are already included. `data/mop-index.json` maps any coastal point to its
+   nearest MOP point; the browser then reads that point's spectrum over OPeNDAP.
+2. **Swell systems**: the frequency spectrum is split at its valleys (watershed) into
+   separate swells, merging weak or overlapping systems, giving height, peak period and
+   mean direction for each.
+3. **To the break**: each swell is un-shoaled from 10 m to a deep-water equivalent,
+   refracted the last stretch toward the shore normal (`Kr = sqrt(cos θ)`), and broken with
+   Komar–Gaughan `Hb = 0.39·g^0.2·(T·H0′²)^0.4`. Swells combine as `sqrt(Σ Hb²)`; the face
    range shown is 0.55–0.85 × Hb.
-6. **Rating and report**: height, period and wind relative to the shore combine into a
+4. **Wind, weather, tide**: wind, weather and water temperature from Open-Meteo; tides are
+   NOAA CO-OPS harmonic predictions (MLLW) from the nearest station
+   (`data/tide-stations.json`).
+5. **Rating and report**: height, period and wind relative to the shore combine into a
    seven-step rating (flat to epic). Tide extremes, best windows, wetsuit advice and the
-   prose all come from these numbers.
+   prose all come from these numbers by rules.
+
+Elevation tiles are only used for the 3D seabed view on California spots.
+
+### Elsewhere (fallback)
+Where there is no MOP coverage, Glassy models the nearshore itself: Open-Meteo offshore
+swell partitions, AWS Terrain Tiles bathymetry (z12 land with z10/z8 depth fallback, since
+the tiles carry no seabed above z10), a coast snap and 8 m surf point, and backward ray
+tracing for nine periods with Snell refraction and island blocking, then the same breaking
+and rating steps.
 
 It is a model, not an observation. Sandbars, reef shape and tide effects on breaking are not
 resolved, and the wave model itself can be wrong.
 
 ## Data sources
 
-- Swell, wind, tide and water temperature: [Open-Meteo](https://open-meteo.com) (Marine and
-  Forecast APIs, CC BY 4.0)
+- California nearshore waves: [CDIP](https://cdip.ucsd.edu/) MOP model, Scripps Institution
+  of Oceanography
+- Tides (California): [NOAA CO-OPS](https://tidesandcurrents.noaa.gov/) harmonic predictions
+- Wind, weather, water temperature and offshore swell: [Open-Meteo](https://open-meteo.com)
+  (Marine and Forecast APIs, CC BY 4.0)
 - Bathymetry and terrain: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)
   (ETOPO1, GEBCO, SRTM, NOAA Coastal Relief)
 - Place search: Open-Meteo Geocoding. Reverse geocoding: OpenStreetMap
@@ -97,6 +110,7 @@ developing.
 | `index.html`, `css/app.css`, `css/charts.css` | shell and styles |
 | `js/main.js` | routing, state, pages, data meter |
 | `js/map.js` | Leaflet map (lazy loaded), markers, rays, swell arrows |
+| `js/nearshore.js` | CDIP MOP nearshore forecasts, spectrum partitioning, NOAA tides |
 | `js/api.js`, `js/net.js` | Open-Meteo / Nominatim requests with byte counting |
 | `js/geo.js`, `js/geo.worker.js`, `js/terrain.js` | bathymetry analysis and ray tracing in a worker |
 | `js/model.js`, `js/report.js` | surf model and generated text |

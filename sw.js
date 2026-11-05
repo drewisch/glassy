@@ -1,5 +1,5 @@
 // Glassy service worker. Bump VERSION whenever shell files change.
-const VERSION = 'glassy-v1';
+const VERSION = 'glassy-v2';
 const SHELL_CACHE = `${VERSION}-shell`;
 const API_CACHE = 'glassy-api-v1';
 const TERRAIN_CACHE = 'glassy-terrain-v1';
@@ -22,6 +22,9 @@ const SHELL = [
   'js/geo.worker.js',
   'js/terrain.js',
   'js/model.js',
+  'js/nearshore.js',
+  'data/mop-index.json',
+  'data/tide-stations.json',
   'js/report.js',
   'js/charts.js',
   'js/map.js',
@@ -124,7 +127,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   // Forecast / geocoding: fresh when online, last known when offline
-  if (url.hostname.endsWith('open-meteo.com') || url.hostname === 'nominatim.openstreetmap.org') {
+  if (url.hostname.endsWith('open-meteo.com') || url.hostname === 'nominatim.openstreetmap.org' ||
+      url.hostname === 'thredds.cdip.ucsd.edu' || url.hostname === 'api.tidesandcurrents.noaa.gov') {
     event.respondWith(networkFirst(event, API_CACHE));
     return;
   }

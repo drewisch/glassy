@@ -499,17 +499,19 @@ details.how code { font: 12.5px var(--mono); background: var(--surface-2); paddi
   .search { grid-column: 1 / -1; grid-row: 2; max-width: none; }
   .search-kbd { display: none; }
   .brand-word { font-size: 22px; }
-  .map-overlay { bottom: 22px; }
   .map-hint { font-size: 12.5px; padding: 10px 12px; }
   .map-hint b { font-size: 15.5px; }
   .mini-map { height: 280px; }
-  .map-overlay { left: 10px; right: 10px; align-items: stretch; }
-  .map-hint { max-width: none; flex: 1; }
+  .map-overlay { top: 10px; bottom: auto; left: 54px; right: 10px; align-items: center; }
+  .map-hint { max-width: none; flex: 1; padding: 7px 11px; border-radius: 10px; }
+  .map-hint b { margin: 0; font-size: 15px; }
   .map-hint .muted { display: none; }
-  .map-overlay .btn { align-self: flex-end; white-space: nowrap; }
+  .map-overlay .btn { white-space: nowrap; }
+  .leaflet-control-attribution { font-size: 9.5px !important; line-height: 1.3; }
   table.parts { font-size: 12.5px; }
   table.parts th, table.parts td { padding-inline: 5px; }
-  table.parts .opt { display: none; }
+  table.parts .opt, table.parts .dir .dim { display: none; }
+  table.parts th { letter-spacing: .04em; }
   table.parts td:first-child { min-width: 0; }
   html { scroll-padding-top: 120px; }
 }
